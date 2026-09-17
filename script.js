@@ -1,5 +1,5 @@
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+const finePointer = window.matchMedia('(pointer: fine)').matches || window.matchMedia('(hover: hover)').matches || 'onmousemove' in window;
 
 const year = document.getElementById('year');
 if (year) year.textContent = new Date().getFullYear();
@@ -210,3 +210,59 @@ document.querySelectorAll('[data-project]').forEach(button => {
 document.querySelector('.modal-close')?.addEventListener('click', closeCaseStudy);
 modal?.addEventListener('click', e => { if (e.target === modal) closeCaseStudy(); });
 modal?.addEventListener('close', () => document.body.classList.remove('modal-open'));
+
+// Live content refinements.
+const primaryEmail = 'igorpereirabarbas@outlook.com';
+document.querySelectorAll('a[href^="mailto:"]').forEach(link => {
+  link.href = `mailto:${primaryEmail}`;
+  const strong = link.querySelector('strong');
+  if (strong && /@/.test(strong.textContent)) strong.textContent = primaryEmail;
+});
+
+// Replace unsupported incident-volume claims with a professional operations summary.
+const terminalStats = document.querySelector('.terminal-stats');
+if (terminalStats) {
+  terminalStats.innerHTML = '<div><strong>3.9</strong><span>GPA</span></div><div><strong>77%</strong><span>Degree</span></div><div><strong>Multi</strong><span>Ticket + Project Work</span></div><div><strong>4×</strong><span>President\'s List</span></div>';
+}
+const expCounter = document.querySelector('.experience-counter');
+if (expCounter) {
+  expCounter.innerHTML = '<strong>Endpoint Ops</strong><span>ticket resolution · device deployments<br>printer configuration · onsite projects</span>';
+}
+const impactGrid = document.querySelector('.current-role .impact-grid');
+if (impactGrid) {
+  impactGrid.innerHTML = '<div><strong>Deploy</strong><span>Windows laptops, desktops, monitors and endpoint peripherals</span></div><div><strong>Support</strong><span>printers, scanners, network connectivity, Intune and user incidents</span></div>';
+}
+
+// Mark completed Cisco Networking Academy certificates as earned.
+document.querySelectorAll('.credential').forEach(card => {
+  const heading = card.querySelector('h3');
+  if (heading && heading.textContent.includes('Junior Cybersecurity Analyst')) {
+    const state = card.querySelector('.cred-state');
+    const icon = card.querySelector('b');
+    if (state) {
+      state.textContent = 'EARNED';
+      state.classList.remove('training', 'studying');
+      state.classList.add('earned');
+    }
+    if (icon) icon.textContent = '✓';
+  }
+});
+
+// Add hands-on home lab experience to the professional experience timeline.
+const experienceStream = document.querySelector('.experience-stream');
+if (experienceStream && !document.getElementById('home-lab-experience')) {
+  const lab = document.createElement('article');
+  lab.className = 'experience-item reveal-group home-lab-role is-visible';
+  lab.id = 'home-lab-experience';
+  lab.innerHTML = `
+    <div class="experience-date reveal-item">2026 — PRESENT</div>
+    <div class="experience-body">
+      <div class="experience-company reveal-item">CYBERSECURITY HOME LAB <span>02</span></div>
+      <h3 class="reveal-item">Security Operations & Infrastructure Lab<br><span>Independent Hands-On Experience</span></h3>
+      <p class="reveal-item">Build and operate an isolated security lab spanning Windows, Ubuntu and Kali Linux. Centralize Windows and Sysmon telemetry in Splunk, investigate authentication and network activity, administer Linux services and permissions, practice endpoint hardening, vulnerability-management workflows and Python-based security automation.</p>
+      <div class="experience-tags reveal-item"><span>Splunk</span><span>Sysmon</span><span>Windows Event Logs</span><span>Ubuntu</span><span>Kali Linux</span><span>Python</span><span>Wireshark</span><span>Nmap</span><span>MITRE ATT&CK</span></div>
+      <div class="impact-grid reveal-item"><div><strong>Detect</strong><span>failed-logon activity, endpoint telemetry and investigation workflows</span></div><div><strong>Build</strong><span>Linux services, permissions, automation scripts and documented security labs</span></div></div>
+    </div>`;
+  const first = experienceStream.firstElementChild;
+  if (first) first.insertAdjacentElement('afterend', lab); else experienceStream.appendChild(lab);
+}
