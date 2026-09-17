@@ -1,10 +1,11 @@
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const finePointer = window.matchMedia('(pointer: fine)').matches || window.matchMedia('(hover: hover)').matches || 'onmousemove' in window;
 
 const year = document.getElementById('year');
 if (year) year.textContent = new Date().getFullYear();
 
-// Scroll progress + active dock section.
+// -----------------------------------------------------------------------------
+// Scroll progress + active dock state
+// -----------------------------------------------------------------------------
 const progressBar = document.querySelector('.scroll-progress span');
 const dockLinks = [...document.querySelectorAll('.dock-item')];
 const sections = dockLinks.map(link => document.querySelector(link.getAttribute('href'))).filter(Boolean);
@@ -24,81 +25,168 @@ function updateScrollUI() {
 window.addEventListener('scroll', updateScrollUI, { passive: true });
 updateScrollUI();
 
-// Staggered reveal.
-const revealGroups = document.querySelectorAll('.reveal-group');
-if (!prefersReducedMotion && 'IntersectionObserver' in window) {
-  const revealObserver = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('is-visible');
-        revealObserver.unobserve(entry.target);
-      }
-    });
-  }, { threshold: 0.08, rootMargin: '0px 0px -4% 0px' });
-  revealGroups.forEach(el => revealObserver.observe(el));
-} else {
-  revealGroups.forEach(el => el.classList.add('is-visible'));
+// -----------------------------------------------------------------------------
+// Scroll reveals
+// -----------------------------------------------------------------------------
+const revealObserver = !prefersReducedMotion && 'IntersectionObserver' in window
+  ? new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          revealObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -4% 0px' })
+  : null;
+
+function registerReveal(root = document) {
+  root.querySelectorAll?.('.reveal-group').forEach(el => {
+    if (revealObserver) revealObserver.observe(el);
+    else el.classList.add('is-visible');
+  });
 }
+registerReveal();
 
-// Cursor + magnetic interaction.
-if (finePointer && !prefersReducedMotion) {
-  const dot = document.querySelector('.cursor-dot');
-  const ring = document.querySelector('.cursor-ring');
-  let mx = innerWidth / 2, my = innerHeight / 2;
-  let rx = mx, ry = my;
+// -----------------------------------------------------------------------------
+// Premium cursor / magnetic interaction system
+// Restores the green follower ring around the normal mouse pointer and keeps all
+// cards, spotlights and magnetic controls synchronized to the same coordinates.
+// Uses pointer events directly instead of media-query gating so desktop Chrome,
+// touch-capable laptops and mixed-input devices all behave consistently.
+// -----------------------------------------------------------------------------
+const dot = document.querySelector('.cursor-dot');
+const ring = document.querySelector('.cursor-ring');
+let pointerIsMouse = false;
+let mouseX = innerWidth / 2;
+let mouseY = innerHeight / 2;
+let ringX = mouseX;
+let ringY = mouseY;
+let ringRAF = null;
 
-  window.addEventListener('mousemove', e => {
-    mx = e.clientX; my = e.clientY;
+if (dot && ring) {
+  // Stronger, unmistakable Awwwards-style follower.
+  Object.assign(ring.style, {
+    width: '42px',
+    height: '42px',
+    border: '1.5px solid rgba(135,255,202,.88)',
+    boxShadow: '0 0 18px rgba(135,255,202,.22), inset 0 0 14px rgba(135,255,202,.05)',
+    background: 'rgba(135,255,202,.025)',
+    transition: 'width .28s cubic-bezier(.22,1,.36,1), height .28s cubic-bezier(.22,1,.36,1), background .28s ease, border-color .28s ease, box-shadow .28s ease, opacity .2s ease'
+  });
+  Object.assign(dot.style, {
+    width: '5px',
+    height: '5px',
+    background: '#87ffca',
+    boxShadow: '0 0 16px #87ffca'
+  });
+
+  const animateFollower = () => {
+    ringX += (mouseX - ringX) * 0.18;
+    ringY += (mouseY - ringY) * 0.18;
+    ring.style.transform = `translate(${ringX}px, ${ringY}px) translate(-50%, -50%)`;
+    ringRAF = requestAnimationFrame(animateFollower);
+  };
+  animateFollower();
+
+  window.addEventListener('pointermove', event => {
+    // Mouse and pen get the visual follower; touch remains native and uncluttered.
+    if (event.pointerType === 'touch') return;
+    pointerIsMouse = true;
+    mouseX = event.clientX;
+    mouseY = event.clientY;
     document.body.classList.add('pointer-active');
-    if (dot) dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%, -50%)`;
+    dot.style.transform = `translate(${mouseX}px, ${mouseY}px) translate(-50%, -50%)`;
+
+    // Cursor-synced ambient movement gives the whole page a subtle tactile feel.
+    const nx = mouseX / innerWidth - 0.5;
+    const ny = mouseY / innerHeight - 0.5;
+    document.documentElement.style.setProperty('--cursor-x', `${mouseX}px`);
+    document.documentElement.style.setProperty('--cursor-y', `${mouseY}px`);
+    document.querySelectorAll('.ambient').forEach((el, i) => {
+      const strength = [9, -7, 5][i] || 5;
+      el.style.marginLeft = `${nx * strength}px`;
+      el.style.marginTop = `${ny * strength}px`;
+    });
   }, { passive: true });
 
-  const follow = () => {
-    rx += (mx - rx) * 0.15;
-    ry += (my - ry) * 0.15;
-    if (ring) ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
-    requestAnimationFrame(follow);
-  };
-  follow();
-
-  document.querySelectorAll('a, button, .work-card, .skill-zone, .credential').forEach(el => {
-    el.addEventListener('mouseenter', () => document.body.classList.add('pointer-hover'));
-    el.addEventListener('mouseleave', () => document.body.classList.remove('pointer-hover'));
+  document.documentElement.addEventListener('mouseleave', () => {
+    document.body.classList.remove('pointer-active', 'pointer-hover');
   });
 
-  document.querySelectorAll('.magnetic').forEach(el => {
-    el.addEventListener('mousemove', e => {
-      const r = el.getBoundingClientRect();
-      const x = e.clientX - r.left - r.width / 2;
-      const y = e.clientY - r.top - r.height / 2;
-      el.style.transform = `translate(${x * 0.16}px, ${y * 0.16}px)`;
-      el.style.setProperty('--mx', `${e.clientX - r.left}px`);
-      el.style.setProperty('--my', `${e.clientY - r.top}px`);
-    });
-    el.addEventListener('mouseleave', () => { el.style.transform = ''; });
-  });
-
-  document.querySelectorAll('.spotlight-card, .cta').forEach(el => {
-    el.addEventListener('mousemove', e => {
-      const r = el.getBoundingClientRect();
-      el.style.setProperty('--mx', `${e.clientX - r.left}px`);
-      el.style.setProperty('--my', `${e.clientY - r.top}px`);
+  // One delegated hover system also works for dynamically injected content.
+  document.addEventListener('pointerover', event => {
+    if (!pointerIsMouse && event.pointerType === 'touch') return;
+    const interactive = event.target.closest('a, button, .work-card, .feature-project, .skill-zone, .credential, .experience-item, .lab-experience-card');
+    if (!interactive) return;
+    document.body.classList.add('pointer-hover');
+    Object.assign(ring.style, {
+      width: '64px',
+      height: '64px',
+      background: 'rgba(135,255,202,.075)',
+      borderColor: 'rgba(135,255,202,1)',
+      boxShadow: '0 0 26px rgba(135,255,202,.30), inset 0 0 18px rgba(135,255,202,.08)'
     });
   });
 
-  document.querySelectorAll('.tilt').forEach(el => {
-    const strength = Number(el.dataset.tiltStrength || 4);
-    el.addEventListener('mousemove', e => {
-      const r = el.getBoundingClientRect();
-      const px = (e.clientX - r.left) / r.width - 0.5;
-      const py = (e.clientY - r.top) / r.height - 0.5;
-      el.style.transform = `perspective(1100px) rotateX(${py * -strength}deg) rotateY(${px * strength}deg) translateZ(0)`;
+  document.addEventListener('pointerout', event => {
+    const fromInteractive = event.target.closest?.('a, button, .work-card, .feature-project, .skill-zone, .credential, .experience-item, .lab-experience-card');
+    if (!fromInteractive) return;
+    const toInteractive = event.relatedTarget?.closest?.('a, button, .work-card, .feature-project, .skill-zone, .credential, .experience-item, .lab-experience-card');
+    if (toInteractive) return;
+    document.body.classList.remove('pointer-hover');
+    Object.assign(ring.style, {
+      width: '42px',
+      height: '42px',
+      background: 'rgba(135,255,202,.025)',
+      borderColor: 'rgba(135,255,202,.88)',
+      boxShadow: '0 0 18px rgba(135,255,202,.22), inset 0 0 14px rgba(135,255,202,.05)'
     });
-    el.addEventListener('mouseleave', () => { el.style.transform = ''; });
   });
 }
 
-// Ambient parallax.
+// Pointer-synced spotlights for cards and CTAs.
+document.addEventListener('pointermove', event => {
+  if (event.pointerType === 'touch') return;
+  const spotlight = event.target.closest('.spotlight-card, .cta, .work-card, .feature-project, .lab-experience-card');
+  if (spotlight) {
+    const rect = spotlight.getBoundingClientRect();
+    spotlight.style.setProperty('--mx', `${event.clientX - rect.left}px`);
+    spotlight.style.setProperty('--my', `${event.clientY - rect.top}px`);
+  }
+}, { passive: true });
+
+// Magnetic pull. Event delegation keeps it working after DOM injections.
+document.addEventListener('pointermove', event => {
+  if (event.pointerType === 'touch') return;
+  const el = event.target.closest('.magnetic');
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const x = event.clientX - rect.left - rect.width / 2;
+  const y = event.clientY - rect.top - rect.height / 2;
+  el.style.transform = `translate(${x * 0.14}px, ${y * 0.14}px)`;
+  el.style.setProperty('--mx', `${event.clientX - rect.left}px`);
+  el.style.setProperty('--my', `${event.clientY - rect.top}px`);
+});
+
+document.addEventListener('pointerout', event => {
+  const el = event.target.closest?.('.magnetic');
+  if (el && !event.relatedTarget?.closest?.('.magnetic')) el.style.transform = '';
+});
+
+// 3D card tilt.
+document.querySelectorAll('.tilt').forEach(el => {
+  const strength = Number(el.dataset.tiltStrength || 4);
+  el.addEventListener('pointermove', event => {
+    if (event.pointerType === 'touch') return;
+    const rect = el.getBoundingClientRect();
+    const px = (event.clientX - rect.left) / rect.width - 0.5;
+    const py = (event.clientY - rect.top) / rect.height - 0.5;
+    el.style.transform = `perspective(1100px) rotateX(${py * -strength}deg) rotateY(${px * strength}deg) translateZ(0)`;
+  });
+  el.addEventListener('pointerleave', () => { el.style.transform = ''; });
+});
+
+// Ambient scroll parallax remains disabled for reduced-motion users.
 if (!prefersReducedMotion) {
   const parallaxEls = document.querySelectorAll('[data-parallax]');
   window.addEventListener('scroll', () => {
@@ -109,7 +197,9 @@ if (!prefersReducedMotion) {
   }, { passive: true });
 }
 
-// Project case studies.
+// -----------------------------------------------------------------------------
+// Project case studies
+// -----------------------------------------------------------------------------
 const projectData = {
   soc: {
     kicker: 'CASE 01 / SECURITY MONITORING',
@@ -193,6 +283,8 @@ function openCaseStudy(key, trigger) {
   if (!modal || !data) return;
   lastTrigger = trigger || null;
   Object.entries(modalEls).forEach(([name, el]) => { if (el) el.textContent = data[name]; });
+  const repoLink = document.getElementById('modalRepoLink');
+  if (repoLink && trigger?.dataset?.repo) repoLink.href = trigger.dataset.repo;
   modal.showModal();
   document.body.classList.add('modal-open');
 }
@@ -208,10 +300,12 @@ document.querySelectorAll('[data-project]').forEach(button => {
   button.addEventListener('click', () => openCaseStudy(button.dataset.project, button));
 });
 document.querySelector('.modal-close')?.addEventListener('click', closeCaseStudy);
-modal?.addEventListener('click', e => { if (e.target === modal) closeCaseStudy(); });
+modal?.addEventListener('click', event => { if (event.target === modal) closeCaseStudy(); });
 modal?.addEventListener('close', () => document.body.classList.remove('modal-open'));
 
-// Live content refinements.
+// -----------------------------------------------------------------------------
+// Portfolio content refinements
+// -----------------------------------------------------------------------------
 const primaryEmail = 'igorpereirabarbas@outlook.com';
 document.querySelectorAll('a[href^="mailto:"]').forEach(link => {
   link.href = `mailto:${primaryEmail}`;
@@ -219,10 +313,20 @@ document.querySelectorAll('a[href^="mailto:"]').forEach(link => {
   if (strong && /@/.test(strong.textContent)) strong.textContent = primaryEmail;
 });
 
-// Replace unsupported incident-volume claims with a professional operations summary.
+// Keep structured profile data aligned with the public contact address.
+const structuredProfile = document.querySelector('script[type="application/ld+json"]');
+if (structuredProfile) {
+  try {
+    const data = JSON.parse(structuredProfile.textContent);
+    data.email = `mailto:${primaryEmail}`;
+    structuredProfile.textContent = JSON.stringify(data);
+  } catch (_) {}
+}
+
+// Professional operations language instead of a fixed weekly incident count.
 const terminalStats = document.querySelector('.terminal-stats');
 if (terminalStats) {
-  terminalStats.innerHTML = '<div><strong>3.9</strong><span>GPA</span></div><div><strong>77%</strong><span>Degree</span></div><div><strong>Multi</strong><span>Ticket + Project Work</span></div><div><strong>4×</strong><span>President\'s List</span></div>';
+  terminalStats.innerHTML = '<div><strong>3.9</strong><span>GPA</span></div><div><strong>77%</strong><span>Degree</span></div><div><strong>OPS</strong><span>Tickets + Projects</span></div><div><strong>4×</strong><span>President\'s List</span></div>';
 }
 const expCounter = document.querySelector('.experience-counter');
 if (expCounter) {
@@ -233,7 +337,7 @@ if (impactGrid) {
   impactGrid.innerHTML = '<div><strong>Deploy</strong><span>Windows laptops, desktops, monitors and endpoint peripherals</span></div><div><strong>Support</strong><span>printers, scanners, network connectivity, Intune and user incidents</span></div>';
 }
 
-// Mark completed Cisco Networking Academy certificates as earned.
+// Completed Cisco Networking Academy certificates.
 document.querySelectorAll('.credential').forEach(card => {
   const heading = card.querySelector('h3');
   if (heading && heading.textContent.includes('Junior Cybersecurity Analyst')) {
@@ -248,21 +352,58 @@ document.querySelectorAll('.credential').forEach(card => {
   }
 });
 
-// Add hands-on home lab experience to the professional experience timeline.
-const experienceStream = document.querySelector('.experience-stream');
-if (experienceStream && !document.getElementById('home-lab-experience')) {
-  const lab = document.createElement('article');
-  lab.className = 'experience-item reveal-group home-lab-role is-visible';
-  lab.id = 'home-lab-experience';
-  lab.innerHTML = `
-    <div class="experience-date reveal-item">2026 — PRESENT</div>
-    <div class="experience-body">
-      <div class="experience-company reveal-item">CYBERSECURITY HOME LAB <span>02</span></div>
-      <h3 class="reveal-item">Security Operations & Infrastructure Lab<br><span>Independent Hands-On Experience</span></h3>
-      <p class="reveal-item">Build and operate an isolated security lab spanning Windows, Ubuntu and Kali Linux. Centralize Windows and Sysmon telemetry in Splunk, investigate authentication and network activity, administer Linux services and permissions, practice endpoint hardening, vulnerability-management workflows and Python-based security automation.</p>
-      <div class="experience-tags reveal-item"><span>Splunk</span><span>Sysmon</span><span>Windows Event Logs</span><span>Ubuntu</span><span>Kali Linux</span><span>Python</span><span>Wireshark</span><span>Nmap</span><span>MITRE ATT&CK</span></div>
-      <div class="impact-grid reveal-item"><div><strong>Detect</strong><span>failed-logon activity, endpoint telemetry and investigation workflows</span></div><div><strong>Build</strong><span>Linux services, permissions, automation scripts and documented security labs</span></div></div>
+// -----------------------------------------------------------------------------
+// Dedicated Home Lab Experience section
+// -----------------------------------------------------------------------------
+const projectsSection = document.getElementById('projects');
+if (projectsSection && !document.getElementById('home-lab-experience')) {
+  const labSection = document.createElement('section');
+  labSection.id = 'home-lab-experience';
+  labSection.className = 'section-shell home-lab-experience';
+  labSection.innerHTML = `
+    <div class="shell">
+      <div class="section-intro reveal-group is-visible">
+        <div class="section-index reveal-item">02 — HOME LAB EXPERIENCE</div>
+        <h2 class="section-title reveal-item">Built by doing.<br><span>Tested in my own lab.</span></h2>
+        <p class="section-copy reveal-item">Independent hands-on cybersecurity experience across security monitoring, Linux administration, endpoint hardening, network analysis, incident investigation, vulnerability management and security automation.</p>
+      </div>
+      <div class="home-lab-grid">
+        <a class="lab-experience-card spotlight-card magnetic" href="https://github.com/igorpereirabarba/home-soc-lab" target="_blank" rel="noopener">
+          <small>01 / SECURITY OPERATIONS</small><h3>SOC Monitoring & Detection</h3><p>Centralized Windows and Sysmon telemetry in Splunk, investigated failed-authentication activity, built SPL searches and mapped behavior to MITRE ATT&CK.</p><span>Splunk · Sysmon · Event 4625 · T1110 ↗</span>
+        </a>
+        <a class="lab-experience-card spotlight-card magnetic" href="https://github.com/igorpereirabarba/linux-server-administration" target="_blank" rel="noopener">
+          <small>02 / INFRASTRUCTURE</small><h3>Linux Server Administration</h3><p>Operate an Ubuntu server, configure SSH, manage users/groups and permissions, validate services, networking and controlled shared resources.</p><span>Ubuntu · SSH · systemctl · permissions ↗</span>
+        </a>
+        <a class="lab-experience-card spotlight-card magnetic" href="https://github.com/igorpereirabarba/network-security-windows-hardening" target="_blank" rel="noopener">
+          <small>03 / ENDPOINT + NETWORK</small><h3>Hardening & Traffic Analysis</h3><p>Practice packet analysis, host discovery, Windows security controls, firewall review, logging, patching and endpoint visibility.</p><span>Wireshark · Nmap · Windows · Sysmon ↗</span>
+        </a>
+        <a class="lab-experience-card spotlight-card magnetic" href="https://github.com/igorpereirabarba/security-log-automation" target="_blank" rel="noopener">
+          <small>04 / AUTOMATION</small><h3>Security Automation</h3><p>Use Python to process failed-login records, apply detection thresholds and generate structured analyst alerts and incident reports.</p><span>Python · detection logic · reporting ↗</span>
+        </a>
+      </div>
     </div>`;
-  const first = experienceStream.firstElementChild;
-  if (first) first.insertAdjacentElement('afterend', lab); else experienceStream.appendChild(lab);
+  projectsSection.insertAdjacentElement('afterend', labSection);
+
+  // Self-contained visual layer so the new section matches the existing design
+  // without replacing the site's original stylesheet architecture.
+  const style = document.createElement('style');
+  style.textContent = `
+    .home-lab-experience{overflow:hidden;background:linear-gradient(180deg,rgba(9,11,24,.15),rgba(9,11,24,.72),rgba(5,6,17,.2));border-top:1px solid rgba(255,255,255,.06);border-bottom:1px solid rgba(255,255,255,.06)}
+    .home-lab-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:54px}
+    .lab-experience-card{--mx:50%;--my:50%;position:relative;min-height:275px;padding:30px;border:1px solid rgba(255,255,255,.11);border-radius:26px;background:linear-gradient(145deg,rgba(18,22,42,.72),rgba(8,10,22,.48));backdrop-filter:blur(20px);text-decoration:none;overflow:hidden;transition:border-color .35s ease,box-shadow .45s cubic-bezier(.22,1,.36,1),background .35s ease}
+    .lab-experience-card:before{content:'';position:absolute;inset:0;background:radial-gradient(380px circle at var(--mx) var(--my),rgba(135,255,202,.12),transparent 52%);opacity:.18;transition:opacity .3s ease;pointer-events:none}
+    .lab-experience-card:hover{border-color:rgba(135,255,202,.33);box-shadow:0 26px 70px rgba(0,0,0,.3),0 0 0 1px rgba(135,255,202,.03) inset}
+    .lab-experience-card:hover:before{opacity:1}
+    .lab-experience-card small{position:relative;color:#87ffca;font:500 .65rem/1 DM Mono,monospace;letter-spacing:.11em}
+    .lab-experience-card h3{position:relative;margin:42px 0 14px;font:600 clamp(1.45rem,2.2vw,2.2rem)/1 Space Grotesk,sans-serif;letter-spacing:-.04em}
+    .lab-experience-card p{position:relative;margin:0 0 28px;color:#aeb6ce;font-size:.92rem;max-width:560px}
+    .lab-experience-card>span{position:absolute;left:30px;bottom:26px;color:#818ba6;font:500 .64rem/1.3 DM Mono,monospace;letter-spacing:.04em}
+    @media(max-width:760px){.home-lab-grid{grid-template-columns:1fr}.lab-experience-card{min-height:245px}}
+  `;
+  document.head.appendChild(style);
 }
+
+// Keep experience numbering visually sensible after adding a separate lab section.
+document.querySelectorAll('#experience .experience-company span').forEach((el, index) => {
+  el.textContent = String(index + 1).padStart(2, '0');
+});
